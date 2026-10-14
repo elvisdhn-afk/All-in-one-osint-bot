@@ -3,9 +3,11 @@ import os
 import re
 import json
 import socket
+import threading
 import requests
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -21,6 +23,21 @@ PHONE_KEY = os.environ.get("PHONE_KEY", "Sahil")
 # 🔥 APNA CHANNEL YAHAN DAALO (username with @)
 CHANNEL_ID = os.environ.get("CHANNEL_ID", "@death_taker")
 BRANDING = os.environ.get("BRANDING", "@death_taker")
+
+# ================= DUMMY WEB SERVER (Railway health check) =================
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+    def log_message(self, format, *args):
+        pass  # logs clean rakhne ke liye
+
+def run_health_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    print(f"✅ Health server running on port {port}")
+    server.serve_forever()
 
 # ================= FORCE SUBSCRIPTION =================
 async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -279,7 +296,6 @@ def detect(text):
 
 # ================= HANDLERS =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # 🔒 FORCE SUB CHECK
     if not await check_subscription(update, context):
         return
 
@@ -319,7 +335,6 @@ async def help_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.message.reply_text(msgs.get(q.data, "?"))
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # 🔒 FORCE SUB CHECK
     if not await check_subscription(update, context):
         return
 
@@ -354,7 +369,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # 🔒 FORCE SUB CHECK
     if not await check_subscription(update, context):
         return
 
@@ -372,6 +386,9 @@ async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ================= MAIN =================
 def main():
+    # Railway health check ke liye background HTTP server
+    threading.Thread(target=run_health_server, daemon=True).start()
+
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(verify_sub, pattern="^verify_sub$"))
