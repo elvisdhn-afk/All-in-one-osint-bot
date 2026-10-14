@@ -19,8 +19,8 @@ PHONE_API = os.environ.get("PHONE_API", "https://ethicaltabbo.in/api/lookup")
 PHONE_KEY = os.environ.get("PHONE_KEY", "Sahil")
 
 # 🔥 APNA CHANNEL YAHAN DAALO (username with @)
-CHANNEL_ID = "@death_taker"
-BRANDING = "@death_taker"
+CHANNEL_ID = os.environ.get("CHANNEL_ID", "@death_taker")
+BRANDING = os.environ.get("BRANDING", "@death_taker")
 
 # ================= FORCE SUBSCRIPTION =================
 async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
