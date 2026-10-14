@@ -71,19 +71,25 @@ async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
     return False
 
+
 async def verify_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
-    await q.answer()
     user_id = q.from_user.id
+
     try:
         member = await context.bot.get_chat_member(CHANNEL_ID, user_id)
+
         if member.status in ["member", "administrator", "creator"]:
+            await q.answer("✅ Verified!")
             await q.message.edit_text(
-                f"✅ Verified! Ab tum bot use kar sakte ho.\n\nPowered by {BRANDING}"
+                f"✅ Verified! Ab tum bot use kar sakte ho.\n\n"
+                f"Powered by {BRANDING}"
             )
             return
+
     except Exception:
         pass
+
     await q.answer("❌ Pehle channel join karo!", show_alert=True)
 
 # ================= PHONE =================
