@@ -298,13 +298,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_subscription(update, context):
         return
 
-    kb = [
-        [InlineKeyboardButton("📱 Phone", "h1"), InlineKeyboardButton("📧 Email", "h2")],
-        [InlineKeyboardButton("🌐 IP", "h3"), InlineKeyboardButton("🌍 Domain", "h4")],
-        [InlineKeyboardButton("🔍 Username", "h5"), InlineKeyboardButton("🖼️ Image", "h6")],
-        [InlineKeyboardButton("🧾 GST", "h7"), InlineKeyboardButton("💳 UPI", "h8")],
-        [InlineKeyboardButton("🚗 Vehicle", "h9"), InlineKeyboardButton("🏢 Company", "h10")],
-    ]
+kb = [
+    [InlineKeyboardButton("📱 Phone", callback_data="h1"), InlineKeyboardButton("📧 Email", callback_data="h2")],
+    [InlineKeyboardButton("🌐 IP", callback_data="h3"), InlineKeyboardButton("🌍 Domain", callback_data="h4")],
+    [InlineKeyboardButton("🔍 Username", callback_data="h5"), InlineKeyboardButton("🖼️ Image", callback_data="h6")],
+    [InlineKeyboardButton("🧾 GST", callback_data="h7"), InlineKeyboardButton("💳 UPI", callback_data="h8")],
+    [InlineKeyboardButton("🚗 Vehicle", callback_data="h9"), InlineKeyboardButton("🏢 Company", callback_data="h10")],
+]
     await update.message.reply_text(
         f"🛡️ ALL-IN-ONE OSINT BOT\n\n"
         f"📱 Phone | 📧 Email | 🌐 IP | 🌍 Domain\n"
