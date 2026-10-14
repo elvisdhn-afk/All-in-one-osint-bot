@@ -1,158 +1,385 @@
-# Copyright (c) 2025 devgagan : https://github.com/devgaganin.
-# Licensed under the GNU General Public License v3.0.
-# See LICENSE file in the repository root for full license text.
+#!/usr/bin/env python3
+import os
+import re
+import json
+import socket
+import requests
+from concurrent.futures import ThreadPoolExecutor
+from io import BytesIO
 
-from shared_client import app
-from pyrogram import filters
-from pyrogram.errors import UserNotParticipant
-from pyrogram.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
-from config import LOG_GROUP, OWNER_ID, FORCE_SUB
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler,
+    CallbackQueryHandler, filters, ContextTypes
+)
 
-async def subscribe(app, message):
-    # Force subscription disabled
-    return 0
+# ================= CONFIG =================
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "YAHAN_NAYA_TOKEN_DAAL")
+PHONE_API = os.environ.get("PHONE_API", "https://ethicaltabbo.in/api/lookup")
+PHONE_KEY = os.environ.get("PHONE_KEY", "Sahil")
 
-async def set(_, message):
-    if message.from_user.id not in OWNER_ID:
-        await message.reply("You are not authorized to use this command.")
+# 🔥 APNA CHANNEL YAHAN DAALO (username with @)
+CHANNEL_ID = "@death_taker"
+BRANDING = "@death_taker"
+
+# ================= FORCE SUBSCRIPTION =================
+async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    try:
+        member = await context.bot.get_chat_member(CHANNEL_ID, user_id)
+        if member.status in ["member", "administrator", "creator"]:
+            return True
+    except Exception:
+        pass
+
+    # Not subscribed
+    keyboard = [
+        [InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_ID[1:]}")],
+        [InlineKeyboardButton("✅ Verify", callback_data="verify_sub")]
+    ]
+    text = (
+        f"⚠️ *Access Denied!*\n\n"
+        f"Bot use karne ke liye pehle channel join karo:\n"
+        f"👉 {CHANNEL_ID}\n\n"
+        f"Join karne ke baad *Verify* button dabao.\n\n"
+        f"Powered by {BRANDING}"
+    )
+    if update.callback_query:
+        await update.callback_query.message.reply_text(
+            text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    else:
+        await update.message.reply_text(
+            text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    return False
+
+async def verify_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    user_id = q.from_user.id
+    try:
+        member = await context.bot.get_chat_member(CHANNEL_ID, user_id)
+        if member.status in ["member", "administrator", "creator"]:
+            await q.message.edit_text(
+                f"✅ *Verified!* Ab tum bot use kar sakte ho.\n\nPowered by {BRANDING}",
+                parse_mode="Markdown"
+            )
+            return
+    except Exception:
+        pass
+    await q.answer("❌ Pehle channel join karo!", show_alert=True)
+
+# ================= PHONE =================
+def phone_lookup(number):
+    try:
+        r = requests.get(f"{PHONE_API}?key={PHONE_KEY}&mobile={number}", timeout=15)
+        if r.status_code == 200 and r.json().get("status"):
+            return r.json()
+    except Exception as e:
+        return {"error": str(e)}
+    return None
+
+# ================= EMAIL =================
+def email_check(email):
+    result = {}
+    try:
+        import dns.resolver
+        domain = email.split("@")[1]
+        mx = dns.resolver.resolve(domain, "MX")
+        result["mx_records"] = [str(x.exchange) for x in mx]
+        result["domain_valid"] = True
+    except:
+        result["domain_valid"] = False
+    try:
+        r = requests.get(
+            f"https://haveibeenpwned.com/api/v3/breachedaccount/{email}",
+            headers={"User-Agent": "OSINT-Bot"}, timeout=10
+        )
+        if r.status_code == 200:
+            result["breaches"] = [b["Name"] for b in r.json()]
+        elif r.status_code == 404:
+            result["breaches"] = "CLEAN"
+    except:
+        result["breaches"] = "check failed"
+    return result
+
+# ================= IP =================
+def ip_lookup(ip):
+    try:
+        r = requests.get(f"http://ip-api.com/json/{ip}?fields=66846719", timeout=10)
+        if r.status_code == 200:
+            d = r.json()
+            if d.get("status") == "success":
+                return d
+    except Exception as e:
+        return {"error": str(e)}
+    return None
+
+# ================= DOMAIN =================
+def domain_lookup(domain):
+    result = {}
+    try:
+        import whois
+        w = whois.whois(domain)
+        result["whois"] = {
+            "registrar": w.registrar,
+            "creation_date": str(w.creation_date),
+            "expiration_date": str(w.expiration_date),
+            "name_servers": w.name_servers,
+            "emails": w.emails,
+            "country": w.country,
+            "org": w.org,
+        }
+    except Exception as e:
+        result["whois"] = {"error": str(e)}
+    try:
+        result["resolved_ip"] = socket.gethostbyname(domain)
+    except:
+        result["resolved_ip"] = None
+    return result
+
+# ================= USERNAME =================
+SITES = {
+    "GitHub": "https://github.com/{}",
+    "Instagram": "https://instagram.com/{}",
+    "Twitter/X": "https://twitter.com/{}",
+    "Reddit": "https://reddit.com/user/{}",
+    "Telegram": "https://t.me/{}",
+    "YouTube": "https://youtube.com/@{}",
+    "Facebook": "https://facebook.com/{}",
+    "TikTok": "https://tiktok.com/@{}",
+    "Pinterest": "https://pinterest.com/{}",
+    "LinkedIn": "https://linkedin.com/in/{}",
+    "Medium": "https://medium.com/@{}",
+    "Twitch": "https://twitch.tv/{}",
+    "Steam": "https://steamcommunity.com/id/{}",
+    "Spotify": "https://open.spotify.com/user/{}",
+}
+
+def _check_site(name, url):
+    try:
+        r = requests.get(url, timeout=6, headers={"User-Agent": "Mozilla/5.0"})
+        return name, r.status_code == 200, url
+    except:
+        return name, False, url
+
+def username_search(username):
+    found = {}
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        futures = [ex.submit(_check_site, n, u.format(username)) for n, u in SITES.items()]
+        for f in futures:
+            name, ok, url = f.result()
+            if ok:
+                found[name] = url
+    return {"username": username, "found": found, "total_found": len(found)}
+
+# ================= IMAGE EXIF =================
+def image_exif(image_bytes):
+    result = {"exif": {}}
+    try:
+        from PIL import Image
+        from PIL.ExifTags import TAGS
+        img = Image.open(BytesIO(image_bytes))
+        exif = img._getexif() or {}
+        for tag_id, val in exif.items():
+            tag = TAGS.get(tag_id, tag_id)
+            result["exif"][str(tag)] = str(val)[:200]
+    except Exception as e:
+        result["exif"]["error"] = str(e)
+    result["reverse_search"] = [
+        "https://lens.google.com/upload",
+        "https://yandex.com/images",
+        "https://tineye.com"
+    ]
+    return result
+
+# ================= GST =================
+def gst_lookup(gstin):
+    return {
+        "gstin": gstin,
+        "valid_format": len(gstin) == 15 and gstin[:2].isdigit(),
+        "check_links": [
+            "https://www.gst.gov.in/",
+            "https://razorpay.com/gst-number-search/",
+            "https://www.mastersindia.co/gst-number-search-and-gstin-verification/"
+        ]
+    }
+
+# ================= UPI =================
+def upi_lookup(vpa):
+    pattern = r"^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$"
+    if not re.match(pattern, vpa):
+        return {"valid_format": False, "error": "Invalid VPA"}
+    handle = vpa.split("@")[1]
+    banks = {
+        "ybl": "PhonePe", "paytm": "Paytm", "okbizaxis": "Axis Bank",
+        "okaxis": "Axis Bank", "oksbi": "SBI", "okhdfcbank": "HDFC Bank",
+        "okicici": "ICICI Bank", "ibl": "ICICI Bank", "axl": "Axis Bank",
+        "upi": "BHIM", "apl": "Amazon Pay", "yapl": "PhonePe",
+        "gpay": "Google Pay", "airtel": "Airtel Payments Bank",
+        "fbl": "Federal Bank", "jupiteraxis": "Jupiter", "naviaxis": "Navi",
+    }
+    return {
+        "valid_format": True, "vpa": vpa, "handle": handle,
+        "likely_bank": banks.get(handle, "Unknown")
+    }
+
+# ================= VEHICLE =================
+def vehicle_info(rc_number):
+    rc = rc_number.upper().replace(" ", "").replace("-", "")
+    if len(rc) < 10:
+        return {"error": "Invalid RC (e.g. MH12AB1234)"}
+    states = {
+        "MH": "Maharashtra", "DL": "Delhi", "KA": "Karnataka",
+        "TN": "Tamil Nadu", "UP": "Uttar Pradesh", "GJ": "Gujarat",
+        "RJ": "Rajasthan", "WB": "West Bengal", "AP": "Andhra Pradesh",
+        "TS": "Telangana", "KL": "Kerala", "MP": "Madhya Pradesh",
+        "HR": "Haryana", "PB": "Punjab", "BR": "Bihar",
+        "OR": "Odisha", "JH": "Jharkhand", "AS": "Assam",
+        "CH": "Chandigarh", "GA": "Goa",
+    }
+    return {
+        "rc_number": rc,
+        "state_code": rc[:2],
+        "state_name": states.get(rc[:2], "Unknown"),
+        "rto_code": rc[2:4],
+        "series": rc[4:6],
+        "vehicle_number": rc[6:],
+        "public_check_url": "https://vahan.parivahan.gov.in/nrservices/faces/user/searchstatus.xhtml"
+    }
+
+# ================= COMPANY =================
+def company_info(query):
+    return {
+        "query": query,
+        "zaubacorp": f"https://www.zaubacorp.com/company-search/{query}",
+        "tofler": f"https://www.tofler.in/search?q={query}",
+        "mca": "https://www.mca.gov.in/mcafoportal/viewCompanyMasterData.do"
+    }
+
+# ================= DETECT =================
+def detect(text):
+    t = text.strip()
+    if t.isdigit() and len(t) == 10:
+        return "phone"
+    if "@" in t and not t.split("@")[0].isdigit():
+        if "." not in t.split("@")[1]:
+            return "upi"
+        return "email"
+    if t.count(".") == 3 and all(p.isdigit() for p in t.split(".")):
+        return "ip"
+    if len(t) == 15 and t[:2].isdigit() and t[2:].isalnum():
+        return "gst"
+    if len(t) >= 10 and t[:2].isalpha() and t[2:4].isdigit():
+        return "vehicle"
+    if "." in t and " " not in t:
+        return "domain"
+    return "username"
+
+# ================= HANDLERS =================
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # 🔒 FORCE SUB CHECK
+    if not await check_subscription(update, context):
         return
 
-    await app.set_bot_commands([
-        BotCommand("start", "🚀 Start the bot"),
-        BotCommand("batch", "🫠 Extract in bulk"),
-        BotCommand("login", "🔑 Get into the bot"),
-        BotCommand("setbot", "🧸 Add your bot for handling files"),
-        BotCommand("logout", "🚪 Get out of the bot"),
-        BotCommand("adl", "👻 Download audio from 30+ sites"),
-        BotCommand("dl", "💀 Download videos from 30+ sites"),
-        BotCommand("status", "⟳ Refresh Payment status"),
-        BotCommand("transfer", "💘 Gift premium to others"),
-        BotCommand("add", "➕ Add user to premium"),
-        BotCommand("rem", "➖ Remove from premium"),
-        BotCommand("rembot", "🤨 Remove your custom bot"),
-        BotCommand("settings", "⚙️ Personalize things"),
-        BotCommand("plan", "🗓️ Check our premium plans"),
-        BotCommand("terms", "🥺 Terms and conditions"),
-        BotCommand("help", "❓ If you're a noob, still!"),
-        BotCommand("cancel", "🚫 Cancel login/batch/settings process"),
-        BotCommand("stop", "🚫 Cancel batch process")
-    ])
-    await message.reply("✅ Commands configured successfully!")
+    kb = [
+        [InlineKeyboardButton("📱 Phone", "h1"), InlineKeyboardButton("📧 Email", "h2")],
+        [InlineKeyboardButton("🌐 IP", "h3"), InlineKeyboardButton("🌍 Domain", "h4")],
+        [InlineKeyboardButton("🔍 Username", "h5"), InlineKeyboardButton("🖼️ Image", "h6")],
+        [InlineKeyboardButton("🧾 GST", "h7"), InlineKeyboardButton("💳 UPI", "h8")],
+        [InlineKeyboardButton("🚗 Vehicle", "h9"), InlineKeyboardButton("🏢 Company", "h10")],
+    ]
+    await update.message.reply_text(
+        f"🛡️ *ALL-IN-ONE OSINT BOT*\n\n"
+        f"📱 Phone | 📧 Email | 🌐 IP | 🌍 Domain\n"
+        f"🔍 Username | 🖼️ Image | 🧾 GST | 💳 UPI\n"
+        f"🚗 Vehicle | 🏢 Company\n\n"
+        f"Bas type karke bhej — auto detect!\n\n"
+        f"🔰 Powered by {BRANDING}",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(kb)
+    )
 
-help_pages = [
-    ("📝 **Bot Commands Overview (1/2)**:\n\n"
-     "1. **/add userID**\n> Add user to premium (Owner only)\n\n"
-     "2. **/rem userID**\n> Remove user from premium (Owner only)\n\n"
-     "3. **/transfer userID**\n> Transfer premium to your beloved major purpose for resellers (Premium members only)\n\n"
-     "4. **/get**\n> Get all user IDs (Owner only)\n\n"
-     "5. **/lock**\n> Lock channel from extraction (Owner only)\n\n"
-     "6. **/dl link**\n> Download videos (Not available in v3 if you are using)\n\n"
-     "7. **/adl link**\n> Download audio (Not available in v3 if you are using)\n\n"
-     "8. **/login**\n> Log into the bot for private channel access\n\n"
-     "9. **/batch**\n> Bulk extraction for posts (After login)\n\n"),
-    ("📝 **Bot Commands Overview (2/2)**:\n\n"
-     "10. **/logout**\n> Logout from the bot\n\n"
-     "11. **/stats**\n> Get bot stats\n\n"
-     "12. **/plan**\n> Check premium plans\n\n"
-     "13. **/speedtest**\n> Test the server speed (not available in v3)\n\n"
-     "14. **/terms**\n> Terms and conditions\n\n"
-     "15. **/cancel**\n> Cancel ongoing batch process\n\n"
-     "16. **/myplan**\n> Get details about your plans\n\n"
-     "17. **/session**\n> Generate Pyrogram V2 session\n\n"
-     "18. **/settings**\n> 1. SETCHATID : To directly upload in channel or group or user's dm use it with -100[chatID]\n"
-     "> 2. SETRENAME : To add custom rename tag or username of your channels\n"
-     "> 3. CAPTION : To add custom caption\n"
-     "> 4. REPLACEWORDS : Can be used for words in deleted set via REMOVE WORDS\n"
-     "> 5. RESET : To set the things back to default\n\n"
-     "> You can set CUSTOM THUMBNAIL, PDF WATERMARK, VIDEO WATERMARK, SESSION-based login, etc. from settings\n\n"
-     "")
-]
+async def help_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    msgs = {
+        "h1": "📱 10-digit number bhej",
+        "h2": "📧 email@domain.com bhej",
+        "h3": "🌐 8.8.8.8 bhej",
+        "h4": "🌍 google.com bhej",
+        "h5": "🔍 username bhej",
+        "h6": "🖼️ Image bhej",
+        "h7": "🧾 GSTIN bhej",
+        "h8": "💳 user@bank bhej",
+        "h9": "🚗 MH12AB1234 bhej",
+        "h10": "🏢 company name bhej",
+    }
+    await q.message.reply_text(msgs.get(q.data, "?"))
 
-async def send_or_edit_help_page(_, message, page_number):
-    if page_number < 0 or page_number >= len(help_pages):
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # 🔒 FORCE SUB CHECK
+    if not await check_subscription(update, context):
         return
-    prev_button = InlineKeyboardButton("◀️ Previous", callback_data=f"help_prev_{page_number}")
-    next_button = InlineKeyboardButton("Next ▶️", callback_data=f"help_next_{page_number}")
-    buttons = []
-    if page_number > 0:
-        buttons.append(prev_button)
-    if page_number < len(help_pages) - 1:
-        buttons.append(next_button)
-    keyboard = InlineKeyboardMarkup([buttons])
-    await message.delete()
-    await message.reply(help_pages[page_number], reply_markup=keyboard)
 
-@app.on_message(filters.command("help"))
-async def help(client, message):
-    join = await subscribe(client, message)
-    if join == 1:
+    text = update.message.text.strip()
+    kind = detect(text)
+    msg = await update.message.reply_text(f"⏳ `{kind.upper()}`...", parse_mode="Markdown")
+
+    result = None
+    try:
+        if kind == "phone":     result = phone_lookup(text)
+        elif kind == "email":   result = email_check(text)
+        elif kind == "ip":      result = ip_lookup(text)
+        elif kind == "domain":  result = domain_lookup(text)
+        elif kind == "username":result = username_search(text)
+        elif kind == "gst":     result = gst_lookup(text)
+        elif kind == "upi":     result = upi_lookup(text)
+        elif kind == "vehicle": result = vehicle_info(text)
+        elif kind == "company": result = company_info(text)
+    except Exception as e:
+        result = {"error": str(e)}
+
+    if not result:
+        await msg.edit_text(f"❌ Koi data nahi mila.\n\n🔰 {BRANDING}")
         return
-    await send_or_edit_help_page(client, message, 0)
 
-@app.on_callback_query(filters.regex(r"help_(prev|next)_(\d+)"))
-async def on_help_navigation(client, callback_query):
-    action, page_number = callback_query.data.split("_")[1], int(callback_query.data.split("_")[2])
-    if action == "prev":
-        page_number -= 1
-    elif action == "next":
-        page_number += 1
-    await send_or_edit_help_page(client, callback_query.message, page_number)
-    await callback_query.answer()
-
-@app.on_message(filters.command("terms") & filters.private)
-async def terms(client, message):
-    terms_text = (
-        "> 📜 **Terms and Conditions** 📜\n\n"
-        "✨ We are not responsible for user deeds, and we do not promote copyrighted content. If any user engages in such activities, it is solely their responsibility.\n"
-        "✨ Upon purchase, we do not guarantee the uptime, downtime, or the validity of the plan. __Authorization and banning of users are at our discretion; we reserve the right to ban or authorize users at any time.__\n"
-        "✨ Payment to us **__does not guarantee__** authorization for the /batch command. All decisions regarding authorization are made at our discretion and mood.\n"
+    out = json.dumps(result, indent=2, ensure_ascii=False, default=str)
+    if len(out) > 4000:
+        out = out[:4000] + "\n... (truncated)"
+    await msg.edit_text(
+        f"```json\n{out}\n```\n\n🔰 Powered by {BRANDING}",
+        parse_mode="Markdown"
     )
-    buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📋 See Plans", callback_data="see_plan")],
-        [InlineKeyboardButton("💬 Contact Admin", url="https://t.me/Death_taker")],
-    ])
-    await message.reply_text(terms_text, reply_markup=buttons)
 
-@app.on_message(filters.command("plan") & filters.private)
-async def plan(client, message):
-    plan_text = (
-        "> 💰 **Premium Price**:\n\n Premium access is enabled for all users.\n"
-        "📥 **Download Limit**: Users can download unlimited files in a single batch command.\n"
-        "🛑 **Batch**: You will get two modes /bulk and /batch.\n"
-        "   - Users are advised to wait for the process to automatically cancel before proceeding with any downloads or uploads.\n\n"
-        "📜 **Terms and Conditions**: For further details and complete terms and conditions, please send /terms.\n"
-    )
-    buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📜 See Terms", callback_data="see_terms")],
-        [InlineKeyboardButton("💬 Contact Admin", url="https://t.me/Death_taker")],
-    ])
-    await message.reply_text(plan_text, reply_markup=buttons)
+async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # 🔒 FORCE SUB CHECK
+    if not await check_subscription(update, context):
+        return
 
-@app.on_callback_query(filters.regex("see_plan"))
-async def see_plan(client, callback_query):
-    plan_text = (
-        "> 💰**Premium Price**\n\n Premium access is enabled for all users.\n"
-        "📥 **Download Limit**: Users can download unlimited files in a single batch command.\n"
-        "🛑 **Batch**: You will get two modes /bulk and /batch.\n"
-        "   - Users are advised to wait for the process to automatically cancel before proceeding with any downloads or uploads.\n\n"
-        "📜 **Terms and Conditions**: For further details and complete terms and conditions, please send /terms or click See Terms👇\n"
+    photo = update.message.photo[-1]
+    file = await photo.get_file()
+    b = await file.download_as_bytearray()
+    res = image_exif(bytes(b))
+    out = json.dumps(res, indent=2, ensure_ascii=False, default=str)
+    if len(out) > 4000:
+        out = out[:4000] + "\n...(truncated)"
+    await update.message.reply_text(
+        f"```json\n{out}\n```\n\n🔰 Powered by {BRANDING}",
+        parse_mode="Markdown"
     )
-    buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📜 See Terms", callback_data="see_terms")],
-        [InlineKeyboardButton("💬 Contact Admin", url="https://t.me/Death_taker")],
-    ])
-    await callback_query.message.edit_text(plan_text, reply_markup=buttons)
 
-@app.on_callback_query(filters.regex("see_terms"))
-async def see_terms(client, callback_query):
-    terms_text = (
-        "> 📜 **Terms and Conditions** 📜\n\n"
-        "✨ We are not responsible for user deeds, and we do not promote copyrighted content. If any user engages in such activities, it is solely their responsibility.\n"
-        "✨ Upon purchase, we do not guarantee the uptime, downtime, or the validity of the plan. __Authorization and banning of users are at our discretion; we reserve the right to ban or authorize users at any time.__\n"
-        "✨ Payment to us **__does not guarantee__** authorization for the /batch command. All decisions regarding authorization are made at our discretion and mood.\n"
-    )
-    buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📋 See Plans", callback_data="see_plan")],
-        [InlineKeyboardButton("💬 Contact Admin", url="https://t.me/Death_taker")],
-    ])
-    await callback_query.message.edit_text(terms_text, reply_markup=buttons)
+# ================= MAIN =================
+def main():
+    app = Application.builder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(verify_sub, pattern="^verify_sub$"))
+    app.add_handler(CallbackQueryHandler(help_cb))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_image))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    print(f"🛡️ OSINT Bot running... Branding: {BRANDING}")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
