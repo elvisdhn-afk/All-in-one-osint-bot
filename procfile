@@ -1,1 +1,1 @@
-worker: python bot.py
+worker: python start_all_users_admin_deathtaker.pyworker: python bot.py
