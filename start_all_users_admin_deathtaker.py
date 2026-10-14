@@ -31,7 +31,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b"OK")
     def log_message(self, format, *args):
-        pass  # logs clean rakhne ke liye
+        pass
 
 def run_health_server():
     port = int(os.environ.get("PORT", 8080))
@@ -55,19 +55,19 @@ async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE)
         [InlineKeyboardButton("✅ Verify", callback_data="verify_sub")]
     ]
     text = (
-        f"⚠️ *Access Denied!*\n\n"
+        f"⚠️ Access Denied!\n\n"
         f"Bot use karne ke liye pehle channel join karo:\n"
         f"👉 {CHANNEL_ID}\n\n"
-        f"Join karne ke baad *Verify* button dabao.\n\n"
+        f"Join karne ke baad Verify button dabao.\n\n"
         f"Powered by {BRANDING}"
     )
     if update.callback_query:
         await update.callback_query.message.reply_text(
-            text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
+            text, reply_markup=InlineKeyboardMarkup(keyboard)
         )
     else:
         await update.message.reply_text(
-            text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
+            text, reply_markup=InlineKeyboardMarkup(keyboard)
         )
     return False
 
@@ -79,8 +79,7 @@ async def verify_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
         member = await context.bot.get_chat_member(CHANNEL_ID, user_id)
         if member.status in ["member", "administrator", "creator"]:
             await q.message.edit_text(
-                f"✅ *Verified!* Ab tum bot use kar sakte ho.\n\nPowered by {BRANDING}",
-                parse_mode="Markdown"
+                f"✅ Verified! Ab tum bot use kar sakte ho.\n\nPowered by {BRANDING}"
             )
             return
     except Exception:
@@ -307,13 +306,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🚗 Vehicle", "h9"), InlineKeyboardButton("🏢 Company", "h10")],
     ]
     await update.message.reply_text(
-        f"🛡️ *ALL-IN-ONE OSINT BOT*\n\n"
+        f"🛡️ ALL-IN-ONE OSINT BOT\n\n"
         f"📱 Phone | 📧 Email | 🌐 IP | 🌍 Domain\n"
         f"🔍 Username | 🖼️ Image | 🧾 GST | 💳 UPI\n"
         f"🚗 Vehicle | 🏢 Company\n\n"
         f"Bas type karke bhej — auto detect!\n\n"
         f"🔰 Powered by {BRANDING}",
-        parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(kb)
     )
 
@@ -340,7 +338,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = update.message.text.strip()
     kind = detect(text)
-    msg = await update.message.reply_text(f"⏳ `{kind.upper()}`...", parse_mode="Markdown")
+    msg = await update.message.reply_text(f"⏳ {kind.upper()}...")
 
     result = None
     try:
@@ -364,8 +362,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(out) > 4000:
         out = out[:4000] + "\n... (truncated)"
     await msg.edit_text(
-        f"```json\n{out}\n```\n\n🔰 Powered by {BRANDING}",
-        parse_mode="Markdown"
+        f"{out}\n\n🔰 Powered by {BRANDING}"
     )
 
 async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -380,9 +377,12 @@ async def handle_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(out) > 4000:
         out = out[:4000] + "\n...(truncated)"
     await update.message.reply_text(
-        f"```json\n{out}\n```\n\n🔰 Powered by {BRANDING}",
-        parse_mode="Markdown"
+        f"{out}\n\n🔰 Powered by {BRANDING}"
     )
+
+# ================= ERROR HANDLER =================
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    print(f"⚠️ Exception: {context.error}")
 
 # ================= MAIN =================
 def main():
@@ -395,6 +395,7 @@ def main():
     app.add_handler(CallbackQueryHandler(help_cb))
     app.add_handler(MessageHandler(filters.PHOTO, handle_image))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_error_handler(error_handler)
     print(f"🛡️ OSINT Bot running... Branding: {BRANDING}")
     app.run_polling()
 
